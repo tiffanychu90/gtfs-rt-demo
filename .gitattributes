@@ -6,3 +6,4 @@ full_data/stops_2024-10-16.parquet filter=lfs diff=lfs merge=lfs -text
 full_data/stop_times_2024-10-16.parquet filter=lfs diff=lfs merge=lfs -text
 full_data/crosswalk_gtfs_key_organization_2024-10-16.parquet filter=lfs diff=lfs merge=lfs -text
 full_data/vp_2024-10-16.parquet filter=lfs diff=lfs merge=lfs -text
+sample_data/*.parquet filter=lfs diff=lfs merge=lfs -text
