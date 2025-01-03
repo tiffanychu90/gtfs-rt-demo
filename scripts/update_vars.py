@@ -1,5 +1,5 @@
-INPUT_FOLDER = "./full/"
-OUTPUT_FOLDER = "./sample/"
+INPUT_FOLDER = "./full_data/"
+OUTPUT_FOLDER = "./sample_data/"
 
 analysis_date = "2024-10-16"
 
