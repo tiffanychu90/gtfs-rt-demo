@@ -9,6 +9,10 @@ from typing import Literal, Union
 
 from update_vars import OUTPUT_FOLDER, analysis_date, PROJECT_CRS, gtfs_tables_list
 
+# This does include a key that identifies the transit operator
+# Switch to natural identifier trip_id, instead of trip_instance_key (which links schedule to RT tables in our warehouse)
+trip_group = ["schedule_gtfs_dataset_key", "trip_id"]
+
 def get_table_filepath(
     table_name: Literal[gtfs_tables_list], 
     analysis_date: str
@@ -55,7 +59,7 @@ def stop_times_projected_table(
     trips = get_table(
         "trips", 
         analysis_date, 
-        columns = ["trip_id", "shape_id"],
+        columns = trip_group + ["shape_id"],
         **trip_kwargs
     )
     
@@ -69,31 +73,47 @@ def stop_times_projected_table(
         "stop_times_direction", 
         analysis_date,
         filters = [[("trip_id", "in", subset_trips)]],
-        columns = ["trip_id", "stop_sequence", "geometry"]
+        columns = trip_group + ["stop_sequence", "geometry"]
     ).to_crs(crs)
 
     shapes = get_table(
         "shapes",
         analysis_date,
         filters = [[("shape_id", "in", subset_shapes)]],
-        columns = ["shape_id", "geometry"]
+        columns = ["schedule_gtfs_dataset_key", "shape_id", "geometry"]
     ).to_crs(crs)
     
     # Project each stop onto shape
     gdf = pd.merge(
         stop_times_direction,
         trips,
-        on = "trip_id",
+        on = trip_group,
         how = "inner"
     ).merge(
         shapes.rename(columns = {"geometry": "shape_geometry"}),
-        on = "shape_id",
+        on = ["schedule_gtfs_dataset_key", "shape_id"],
         how = "inner"
     )
     
+    # Get stop_seq_pair (we use stop_pair), but for simplicity, 
+    # this illustrates what we do anyway
     gdf = gdf.assign(
         stop_meters = gdf.shape_geometry.project(gdf.geometry),
-    ).drop(columns = ["shape_geometry"])
+        subseq_stop_sequence = (gdf
+                           .sort_values(trip_group + ["stop_sequence"])
+                           .groupby(trip_group, group_keys=False)
+                           .stop_sequence
+                           .shift(-1)
+                          ).astype("Int64")
+    )
+    
+    gdf = gdf.assign(
+        stop_seq_pair = gdf.stop_sequence.astype(str).str.cat(
+            gdf.subseq_stop_sequence.astype(str), 
+            sep="__"
+        )
+    ).drop(columns = ["subseq_stop_sequence", "shape_geometry"])
+    
     
     return gdf
 
@@ -110,7 +130,7 @@ def vp_projected_table(
     trips = get_table(
         "trips", 
         analysis_date, 
-        columns = ["trip_id", "shape_id"],
+        columns = trip_group + ["shape_id"],
         **trip_kwargs
     )
     
@@ -124,7 +144,7 @@ def vp_projected_table(
         "vp",
         analysis_date,
         filters = [[("trip_id", "in", subset_trips)]],
-        columns = ["trip_id", "location_timestamp_local", "geometry"]
+        columns = trip_group + ["location_timestamp_local", "geometry"]
     ).to_crs(crs).sort_values(
         "location_timestamp_local"
     ).reset_index(drop=True)
@@ -133,22 +153,23 @@ def vp_projected_table(
         "shapes",
         analysis_date,
         filters = [[("shape_id", "in", subset_shapes)]],
-        columns = ["shape_id", "geometry"]
+        columns = ["schedule_gtfs_dataset_key", "shape_id", "geometry"]
     ).to_crs(crs)
     
     gdf = pd.merge(
         vp,
         trips,
-        on = "trip_id",
+        on = trip_group,
         how = "inner"
     ).merge(
         shapes.rename(columns = {"geometry": "shape_geometry"}),
-        on = "shape_id",
+        on = ["schedule_gtfs_dataset_key", "shape_id"],
         how = "inner"
     )
 
     gdf = gdf.assign(
-        vp_meters = gdf.shape_geometry.project(gdf.geometry)
+        vp_meters = gdf.shape_geometry.project(gdf.geometry),
+        vp_idx = gdf.index, # it's ordered within a trip, but vp_idx spans entirety of vp
     ).drop(columns = ["shape_geometry"])
     
     return gdf
