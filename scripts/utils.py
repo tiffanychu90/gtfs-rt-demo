@@ -195,23 +195,7 @@ def plot_vp_shape_stops(
     return m
 
 
-def calculate_time_elapsed(
-    df: pd.DataFrame,
-    timestamp_col: str = "location_timestamp_local"
-) -> float:
 
-    seconds_elapsed = (df[timestamp_col].max() - df[timestamp_col].min()) / (np.timedelta64(1, "s"))
-    
-    return seconds_elapsed
-    
-    
-def calculate_meters_elapsed(
-    df: pd.DataFrame,
-    distance_col: str = "vp_meters"
-) -> float:
-    meters_elapsed = df[distance_col].max() - df[distance_col].min()
-
-    return meters_elapsed
 
 
 def calculate_speed(meters_elapsed: float, sec_elapsed: float) -> float:
