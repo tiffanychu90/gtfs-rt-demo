@@ -1,5 +1,6 @@
 INPUT_FOLDER = "../full_data/"
 OUTPUT_FOLDER = "../sample_data/"
+PARTRIDGE_FOLDER = "../partridge_data/"
 
 analysis_date = "2024-10-16"
 

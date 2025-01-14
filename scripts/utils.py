@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import shapely
 
+import create_table
 from update_vars import INPUT_FOLDER, OUTPUT_FOLDER, PROJECT_CRS, WGS84
 
 MPH_PER_MPS = 2.237  # use to convert meters/second to miles/hour
@@ -195,8 +196,33 @@ def plot_vp_shape_stops(
     return m
 
 
-
-
-
 def calculate_speed(meters_elapsed: float, sec_elapsed: float) -> float:
     return meters_elapsed / sec_elapsed * MPH_PER_MPS
+
+def monotonic_trips(
+    analysis_date: str,
+    **kwargs
+):
+    """
+    """
+    stops_projected = create_table.stop_times_projected_table(
+        analysis_date, 
+        **kwargs
+    )
+    
+    trip_cols = ["schedule_gtfs_dataset_key", "trip_id", "shape_id"]
+
+    check_df = (stops_projected
+                       .sort_values(trip_cols + ["stop_sequence"])
+                       .groupby(trip_cols)
+                       .agg({"stop_meters": lambda x: list(x)})
+                       .reset_index()
+                      )
+
+    check_df = check_df.assign(
+        is_monotonic = check_df.apply(lambda x: np.all(np.diff(x.stop_meters) > 0), axis=1)
+    )[
+        trip_cols + ["is_monotonic"]
+    ].drop_duplicates().reset_index(drop=True)
+
+    return check_df

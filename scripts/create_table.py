@@ -73,7 +73,7 @@ def stop_times_projected_table(
         "stop_times_direction", 
         analysis_date,
         filters = [[("trip_id", "in", subset_trips)]],
-        columns = trip_group + ["stop_sequence", "geometry"]
+        columns = trip_group + ["stop_id", "stop_sequence", "geometry"]
     ).to_crs(crs)
 
     shapes = get_table(
@@ -104,7 +104,13 @@ def stop_times_projected_table(
                            .groupby(trip_group, group_keys=False)
                            .stop_sequence
                            .shift(-1)
-                          ).astype("Int64")
+                          ).astype("Int64"),
+        stop_id2 = (gdf
+                    .sort_values(trip_group + ["stop_sequence"])
+                    .groupby(trip_group, group_keys=False)
+                    .stop_id
+                    .shift(-1)
+                    ),
     )
     
     gdf = gdf.assign(
