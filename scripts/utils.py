@@ -7,6 +7,9 @@ import numpy as np
 import pandas as pd
 import shapely
 
+from scipy.spatial import KDTree
+from typing import Union
+
 import create_table
 from update_vars import INPUT_FOLDER, OUTPUT_FOLDER, PROJECT_CRS, WGS84
 
@@ -226,3 +229,5 @@ def monotonic_trips(
     ].drop_duplicates().reset_index(drop=True)
 
     return check_df
+
+
