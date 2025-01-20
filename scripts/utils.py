@@ -202,6 +202,18 @@ def plot_vp_shape_stops(
 def calculate_speed(meters_elapsed: float, sec_elapsed: float) -> float:
     return meters_elapsed / sec_elapsed * MPH_PER_MPS
 
+def monotonic_check(arr: np.ndarray) -> bool:
+    """
+    For an array, check if it's monotonically increasing. 
+    https://stackoverflow.com/questions/4983258/check-list-monotonicity
+    """
+    diff_arr = np.diff(arr)
+    
+    if np.all(diff_arr > 0):
+        return True
+    else:
+        return False
+
 def monotonic_trips(
     analysis_date: str,
     **kwargs
@@ -223,7 +235,7 @@ def monotonic_trips(
                       )
 
     check_df = check_df.assign(
-        is_monotonic = check_df.apply(lambda x: np.all(np.diff(x.stop_meters) > 0), axis=1)
+        is_monotonic = check_df.apply(lambda x: monotonic_check(x.stop_meters), axis=1)
     )[
         trip_cols + ["is_monotonic"]
     ].drop_duplicates().reset_index(drop=True)
