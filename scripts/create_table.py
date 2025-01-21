@@ -111,19 +111,27 @@ def stop_times_projected_table(
                     .stop_id
                     .shift(-1)
                     ),
-    )
+    ).rename(columns = {"stop_id": "stop_id1"})
     
     gdf = gdf.assign(
+        subseq_stop_meters = (gdf
+                           .sort_values(trip_group + ["stop_sequence"])
+                           .groupby(trip_group, group_keys=False)
+                           .stop_meters
+                           .shift(-1)
+                          ),
         stop_seq_pair = gdf.stop_sequence.astype(str).str.cat(
             gdf.subseq_stop_sequence.astype(str), 
             sep="__"
-        )
+        ),
+        stop_id_pair = gdf.stop_id1.str.cat(gdf.stop_id2, sep="__")
     ).drop(columns = ["subseq_stop_sequence", "shape_geometry"])
-    
     
     return gdf
 
 
+
+    
 def vp_projected_table(
     analysis_date: str, 
     crs: str = PROJECT_CRS,
