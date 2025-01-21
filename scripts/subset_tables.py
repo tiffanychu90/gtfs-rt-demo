@@ -1,3 +1,10 @@
+"""
+Subset Cal-ITP GTFS warehouse tables to 2 operators.
+
+We will need to use Cal-ITP vehicle positions table.
+But schedule tables, eventually, let's move to sources others
+can easily access.
+"""
 import geopandas as gpd
 import pandas as pd
 
@@ -106,6 +113,7 @@ def sample_by_trips_and_export(
 if __name__ == "__main__":
     subset_operators = [
         "LA DOT Schedule",
+        "Big Blue Bus Schedule"
     ]
     
     rt_trips = unique_rt_trips(analysis_date)

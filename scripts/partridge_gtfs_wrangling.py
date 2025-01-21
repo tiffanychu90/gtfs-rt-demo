@@ -1,4 +1,8 @@
 """
+Use gtfs_segments.partridge module to download GTFS feeds gtfs.zip
+for operators.
+
+Set up functions to do preprocessing for stop_times grain table.
 """
 import datetime
 import geopandas as gpd
@@ -13,8 +17,9 @@ def get_stop_times_with_stop_geometry(
     operator_name: str
 ) -> gpd.GeoDataFrame:
     """
-    Import stop_times and stops and merge.
-    Returns a stop_times table that has stop_geometry attached.
+    For feed downloaded from partridge, 
+    combine stop_times, stops, shapes, trips
+    and get preprocessed table.
     """
     stop_times = pd.read_parquet(
         f"{PARTRIDGE_FOLDER}{operator_name}/stop_times.parquet",
@@ -23,7 +28,7 @@ def get_stop_times_with_stop_geometry(
             "stop_id", "stop_sequence",
             "arrival_time"
         ]
-    )
+    ).rename(columns = {"arrival_time": "arrival_sec"})
     
     stops = gpd.read_parquet(
         f"{PARTRIDGE_FOLDER}{operator_name}/stops.parquet",
@@ -42,22 +47,63 @@ def get_stop_times_with_stop_geometry(
         columns = ["shape_id", "geometry"]
     ).to_crs(PROJECT_CRS)
     
-    df = pd.merge(
-        stops,
+    gdf = merge_stop_times_trips_shapes_stops(
         stop_times,
-        on = "stop_id",
-        how = "inner"
-    ).merge(
+        stops,
         trips,
-        on = "trip_id",
+        shapes,
+        stop_group = ["stop_id"],
+        trip_group = ["trip_id"],
+        shape_group = ["shape_id"]
+    )
+    
+    gdf2 = stop_times_preprocessing(gdf, trip_group = ["trip_id"])
+    
+    return gdf2
+
+
+def merge_stop_times_trips_shapes_stops(
+    stop_times_df: pd.DataFrame,
+    stops_gdf: gpd.GeoDataFrame,
+    trips_df: pd.DataFrame,
+    shapes_gdf: gpd.GeoDataFrame,
+    stop_group: list = ["stop_id"],
+    trip_group: list = ["trip_id"],
+    shape_group: list = ["shape_id"]
+) -> gpd.GeoDataFrame:
+    """
+    Combine all 4 GTFS schedule tables: 
+    stop_times, stops, shapes, trips.
+    
+    We need a stop_time grain table.
+    Attach stop geometry and shape geometry 
+    (using trips to link trips to shapes).
+    
+    The merge columns, stop_group, trip_group, shape_group,
+    here are defined for an individual operator.
+    If a df with multiple operators is used, these should be 
+    defined as trip_group = [operator_identifier, 'trip_id'] 
+    since trip_id, stop_id, shape_id are not necessarily unique across operators.
+    """
+    # In case we use extra operator identifiers
+    trip_stop_group = list(set(trip_group).intersection(set(stop_group)))
+    
+    gdf = pd.merge(
+        stops_gdf,
+        stop_times_df,
+        on = stop_group,
         how = "inner"
     ).merge(
-        shapes.rename(columns = {"geometry": "shape_geometry"}),
-        on = "shape_id",
+        trips_df,
+        on = trip_group,
         how = "inner"
-    ).sort_values(["trip_id", "stop_sequence"]).reset_index(drop=True)
-    
-    return df
+    ).merge(
+        shapes_gdf.rename(columns = {"geometry": "shape_geometry"}),
+        on = shape_group,
+        how = "inner"
+    ).sort_values(trip_stop_group).reset_index(drop=True)
+        
+    return gdf
 
 
 def stop_times_preprocessing(
@@ -65,7 +111,17 @@ def stop_times_preprocessing(
     trip_group: list = ["trip_id"]
 ) -> gpd.GeoDataFrame:
     """
-    All the stuff we want to do to stop_times + shapes + stops + trips
+    All the stuff we want to do to stop_times + shapes + stops + trips.
+    
+    For stop_times, we want to add columns to understand:
+    - stop_primary_direction: direction from prior stop
+    - stop_meters: the stop's point geometry projected against the shape geometry 
+    (meters progressed along shape)
+    - stop_seq_pair: a segment can be defined as a pair of stop_sequences
+    - stop_id_pair: a segment can be defined as a pair of stop_ids
+    
+    stop_seq_pair is more intuitive to check what's happening,
+    but stop_id_pair will help us aggregate speeds across many trips
     """
     prior_geometry = (gdf
                   .groupby(trip_group, group_keys=False)
