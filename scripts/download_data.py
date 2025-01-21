@@ -1,59 +1,74 @@
 """
-Download one operator's feed, instead of our warehouse
-and get segments from it.
+Download 2 operators, save GTFS schedule tables.
+Also pre-process stop_times.
 """
 import gtfs_segments
-import pyaml 
+import os
 
-import gtfs_segments
+import partridge_gtfs_wrangling
+from update_vars import PARTRIDGE_FOLDER, operators_list
 
-from update_vars import PARTRIDGE_FOLDER
-
-def create_operators_yaml(
-    state_abbrev: str = "CA",
-    yaml_file: str = f"{PARTRIDGE_FOLDER}transit_operators.yml"
+def export_schedule_parquets(
+    provider_name: str,
+    readable_name: str,
+    input_path: str,
+    export_path: str,
 ):
-    sources_df = gtfs_segments.mobility.fetch_gtfs_source(place=f"-{state_abbrev}")
-
-    sources_df = sources_df.assign(
-        #place = sources_df.provider.str.split("-", expand=True)[0],
-        name = sources_df.provider.str.split("-", expand=True)[1].str.replace(f"-{state_abbrev}", "")
+    """
+    Export trips, shapes, stops, stop_times 
+    GTFS schedule tables from gtfs.zip.
+    We'll use this to help with our preprocessing steps.
+    """
+    if not os.path.exists(export_path):
+        os.makedirs(export_path)
+        
+    feed = gtfs_segments.partridge_func.get_bus_feed(
+        f"{input_path}/gtfs.zip"
     )
-    
 
-    my_dict = {
-        **{
-            readable_name: provider 
-            for provider, readable_name 
-            in zip(sources_df.provider, sources_df.name)
-          }
-    }  
+    trips_df = feed[1].trips 
+    shapes_df = feed[1].shapes
+    stops_df = feed[1].stops
+    stop_times_df = feed[1].stop_times
     
-    output = pyaml.dump(my_dict, sort_keys=False)
+    trips_df.to_parquet(f"{export_path}/trips.parquet")
+    shapes_df.to_parquet(f"{export_path}/shapes.parquet")
+    stops_df.to_parquet(f"{export_path}/stops.parquet")
+    stop_times_df.to_parquet(f"{export_path}/stop_times.parquet")
 
-    with open(yaml_file, "w") as f:
-        f.write(output)
-    
-    print(f"exported {yaml_file}")
+    segments = gtfs_segments.gtfs_segments.process_feed(feed[1])
+    segments.to_parquet(f"{export_path}/segments.parquet")
     
     return
 
-
 if __name__ == "__main__":
     
-    create_operators_yaml()
-    '''
-    one_operator = "LADOT"
+    for readable_name in operators_list:
+        
+        print(f"Downloading {readable_name}")
+        sources_df = gtfs_segments.fetch_gtfs_source(place=readable_name)
+        
+        provider_name = sources_df.provider.iloc[0]
     
-    sources_df = gtfs_segments.mobility.fetch_gtfs_source(place="CA")
-    
-    FEED_PROVIDER = sources_df.provider.iloc[0]
-    
-    gtfs_segments.mobility.download_latest_data(sources_df, PARTRIDGE_FOLDER)
+        gtfs_segments.mobility.download_latest_data(sources_df, PARTRIDGE_FOLDER)
 
-    df = gtfs_segments.gtfs_segments.get_gtfs_segments(
-        f'{PARTRIDGE_FOLDER}{FEED_PROVIDER}/gtfs.zip'
-    )
-    df.to_parquet(f"{PARTRIDGE_FOLDER}{one_operator}_segments.parquet")
-    print(f"saved: {one_operator} segments")
-    '''
+        export_schedule_parquets(
+            provider_name = provider_name,
+            readable_name = readable_name,
+            input_path = f"{PARTRIDGE_FOLDER}{provider_name}",
+            export_path = f"{PARTRIDGE_FOLDER}{readable_name}"
+        )
+        
+        print(f"Exported {provider_name} as {readable_name}")
+
+        stop_times_direction = partridge_gtfs_wrangling.get_stop_times_with_stop_geometry(
+            readable_name
+        ).pipe(
+            partridge_gtfs_wrangling.stop_times_preprocessing, 
+            trip_group = ["trip_id"]
+        )
+        
+        stop_times_direction.to_parquet(
+            f"{PARTRIDGE_FOLDER}{readable_name}/stop_times_direction.parquet"
+        )
+        print(f"stop times preprocessing ")

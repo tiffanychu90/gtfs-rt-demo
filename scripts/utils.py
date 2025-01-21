@@ -15,6 +15,16 @@ from update_vars import INPUT_FOLDER, OUTPUT_FOLDER, PROJECT_CRS, WGS84
 
 MPH_PER_MPS = 2.237  # use to convert meters/second to miles/hour
 
+def add_operator_column(
+    df: pd.DataFrame,
+    operator_name: str
+):
+    df = df.assign(
+       schedule_gtfs_dataset_key = operator_name
+    )
+    
+    return df
+
 def get_stop_times_with_stop_geometry(analysis_date: str) -> gpd.GeoDataFrame:
     """
     Import stop_times and stops and merge.
@@ -72,38 +82,6 @@ def condense_by_trip(
     return gdf 
 
 
-def find_direction_of_travel(
-    gdf: gpd.GeoDataFrame, 
-    geometry_col: str = "geometry"
-) -> pd.DataFrame:
-    """
-    Each row is a trip-level array with the stops ordered.
-    A stop is compared against the prior stop position
-    and stop's primary direction is determined.
-    """
-    cardinal_direction_series = []
-    
-    for row in gdf.itertuples():
-        current_stop_geom = np.array(getattr(row, "geometry"))
-        next_stop_geom = current_stop_geom[1:]
-        
-        # distance_east, distance_north
-        direction_arr = np.asarray(
-            # first value is unknown because there is no prior stop to compare to
-            ["Unknown"] + 
-            [cardinal_definition_rules(pt.x - prior_pt.x, pt.y - prior_pt.y) 
-             for pt, prior_pt 
-             in zip(next_stop_geom, current_stop_geom)]
-        )
-        cardinal_direction_series.append(direction_arr)
-    
-    gdf = gdf.assign(
-        stop_primary_direction = cardinal_direction_series
-    ).drop(columns = "geometry")
-    
-    return gdf
-    
-
 def cardinal_definition_rules(
     distance_east: float, 
     distance_north: float
@@ -128,16 +106,6 @@ def cardinal_definition_rules(
         else:
             return "Unknown"
         
-def explode_arrays(
-    df: pd.DataFrame,
-    array_cols: list = ["stop_sequence", "stop_primary_direction"]
-) -> pd.DataFrame:
-    """
-    Use this to turn trip-level df with columns of arrays
-    and explode it so it's a long df.
-    """
-    return df.explode(array_cols)
-
 
 def scheduled_and_vp_trips(analysis_date: str) -> list:
     """
