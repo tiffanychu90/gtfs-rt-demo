@@ -92,7 +92,7 @@ def sample_by_trips_and_export(
             ]]
         ).merge(
             crosswalk,
-            on = "feed_key",
+            on = ["feed_key", "schedule_gtfs_dataset_key"],
             how = "inner"
         ).drop(columns = "feed_key")
         

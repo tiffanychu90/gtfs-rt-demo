@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 import utils
-from update_vars import PARTRIDGE_FOLDER, WGS84, PROJECT_CRS 
+from update_vars import PARTRIDGE_FOLDER, PROJECT_CRS 
 
 def get_stop_times_with_stop_geometry(
     operator_name: str
@@ -84,10 +84,7 @@ def merge_stop_times_trips_shapes_stops(
     If a df with multiple operators is used, these should be 
     defined as trip_group = [operator_identifier, 'trip_id'] 
     since trip_id, stop_id, shape_id are not necessarily unique across operators.
-    """
-    # In case we use extra operator identifiers
-    trip_stop_group = list(set(trip_group).intersection(set(stop_group)))
-    
+    """    
     gdf = pd.merge(
         stops_gdf,
         stop_times_df,
@@ -101,7 +98,7 @@ def merge_stop_times_trips_shapes_stops(
         shapes_gdf.rename(columns = {"geometry": "shape_geometry"}),
         on = shape_group,
         how = "inner"
-    ).sort_values(trip_stop_group).reset_index(drop=True)
+    ).sort_values(trip_group + ["stop_sequence"]).reset_index(drop=True)
         
     return gdf
 
@@ -162,6 +159,41 @@ def stop_times_preprocessing(
         stop_id_pair = gdf.stop_id1.str.cat(gdf.stop_id2, sep="__")
     ).drop(
         columns = ["subseq_stop_sequence", "shape_geometry"]
-    ).to_crs(WGS84)
+    )
     
     return gdf
+
+
+def vp_preprocessing(
+    gdf: gpd.GeoDataFrame,
+    trip_group: list = ["trip_id"]
+) -> gpd.GeoDataFrame:
+    """
+    All the stuff we want to do to vehicle_positions.
+    
+    For vp, we want to add columns to understand:
+    - vp_primary_direction: direction from prior stop
+    - vp_meters: the vp's point geometry projected against the shape geometry 
+    (meters progressed along shape)
+    We should also get vp dwell positions, 
+    and have location_timestamp_local and moving_timestamp_local.
+    """  
+    prior_geometry = (gdf
+                  .groupby(trip_group, group_keys=False)
+                  .geometry
+                  .shift(1)
+                )    
+    
+    gdf = gdf.assign(
+        vp_primary_direction = np.vectorize(utils.cardinal_definition_rules)(
+            gdf.geometry.x - prior_geometry.x, 
+            gdf.geometry.y - prior_geometry.y),
+        vp_meters = gdf.shape_geometry.project(gdf.geometry),
+        vp_idx = gdf.index, # it's ordered within a trip, but vp_idx spans entirety of vp
+    )
+    
+    if "feed_key" in gdf.columns:
+        gdf = gdf.drop(columns = "feed_key") 
+    
+    return gdf
+    

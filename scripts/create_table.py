@@ -6,11 +6,14 @@ to be used with trip grain vehicle positions data
 for segment speeds calculation.
 """
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
 from typing import Literal, Union
 
 import partridge_gtfs_wrangling
+import neighbor
+import utils
 from update_vars import (INPUT_FOLDER, OUTPUT_FOLDER, PARTRIDGE_FOLDER,
                          directory_list, gtfs_tables_list, 
                          analysis_date, PROJECT_CRS
@@ -75,19 +78,23 @@ def stop_times_projected_calitp_table(
     """
     if folder_path == INPUT_FOLDER:
         operator_col = "feed_key"
+        trip_cols = [operator_col, "gtfs_dataset_key", "trip_id"]
     elif folder_path == OUTPUT_FOLDER:
         operator_col = "schedule_gtfs_dataset_key"
-    
+        trip_cols = ["gtfs_dataset_key", "trip_id"]              
+
     operator_trip_group = [operator_col] + trip_group
     
     trips = get_calitp_table(
         "trips", 
         analysis_date, 
         folder_path = folder_path,
-        columns = operator_trip_group + ["gtfs_dataset_key", "shape_id"],
+        columns = trip_cols + ["shape_id"],
         **trip_kwargs
-    ).rename(columns = {"gtfs_dataset_key": "schedule_gtfs_dataset_key"})
-    
+    ).rename(
+        columns = {"gtfs_dataset_key": "schedule_gtfs_dataset_key"}
+    )
+
     # trip_id can be repeated across operators
     # Once we move out of single operator, we use trip_instance_key / shape_array_key,
     # which is present in our warehouse but would have to be created for a tool
@@ -212,16 +219,61 @@ def vp_projected_table(
         trips_to_shape.rename(columns = {"geometry": "shape_geometry"}),
         on = rt_trip_group,
         how = "inner"
+    )  
+    
+    gdf = partridge_gtfs_wrangling.vp_preprocessing(
+        gdf, 
+        trip_group = rt_trip_group
     )
     
-    if "feed_key" in gdf.columns:
-        drop_cols = ["feed_key", "shape_geometry"]
-    else:
-        drop_cols = ["shape_geometry"]
+    return gdf
 
+
+def stop_times_with_vp_table(
+    analysis_date: str,
+    **kwargs
+) -> gpd.GeoDataFrame:
+    """
+    """
+    # We created this in stop_times_direction.py
+    stops_projected = get_calitp_table(
+        "stop_times_direction",
+        analysis_date,
+        folder_path = OUTPUT_FOLDER,
+        **kwargs
+    )
+    
+    vp_projected = vp_projected_table(
+        analysis_date,
+        crs = PROJECT_CRS,
+        folder_path = OUTPUT_FOLDER,
+        **kwargs
+    )   
+    
+    vp_nn = utils.condense_by_trip(
+        vp_projected,
+        group_cols = ["schedule_gtfs_dataset_key", "trip_id", "shape_geometry"],
+        sort_cols = ["schedule_gtfs_dataset_key", "trip_id", "vp_idx"],
+        geometry_col = "geometry",
+        array_cols = ["vp_idx", "vp_primary_direction", "location_timestamp_local"]
+    )
+    
+    vp_nn = vp_nn.assign(
+        vp_primary_direction = vp_nn.apply(
+            lambda x: np.array(x.vp_primary_direction), 
+            axis=1),
+        vp_idx = vp_nn.apply(lambda x: np.array(x.vp_idx), axis=1)
+    )
+        
+    gdf = pd.merge(
+        stops_projected.rename(columns = {"geometry": "stop_geometry"}),
+        vp_nn.rename(columns = {"geometry": "vp_geometry"}),
+        on = ["schedule_gtfs_dataset_key", "trip_id"],
+        how = "inner"
+    ).set_geometry("stop_geometry")
+    
     gdf = gdf.assign(
-        vp_meters = gdf.shape_geometry.project(gdf.geometry),
-        vp_idx = gdf.index, # it's ordered within a trip, but vp_idx spans entirety of vp
-    ).drop(columns = drop_cols)
+        stop_opposite_direction = gdf.stop_primary_direction.map(neighbor.OPPOSITE_DIRECTIONS),
+    )
     
     return gdf

@@ -11,11 +11,11 @@ if __name__ == "__main__":
     
     gdf = create_table.stop_times_projected_calitp_table(
         analysis_date, 
-        crs= PROJECT_CRS,
+        crs = PROJECT_CRS,
         trip_group = ["trip_id"],
         folder_path = INPUT_FOLDER,
     )
-
+    
     gdf.to_parquet(f"{INPUT_FOLDER}stop_times_direction_{analysis_date}.parquet")    
     
     end = datetime.datetime.now()
