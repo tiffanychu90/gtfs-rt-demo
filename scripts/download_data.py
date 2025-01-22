@@ -71,4 +71,4 @@ if __name__ == "__main__":
         stop_times_direction.to_parquet(
             f"{PARTRIDGE_FOLDER}{readable_name}/stop_times_direction.parquet"
         )
-        print(f"stop times preprocessing ")
+        print(f"stop times preprocessing for {readable_name}")

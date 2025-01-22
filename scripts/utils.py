@@ -8,46 +8,24 @@ import pandas as pd
 import shapely
 
 from scipy.spatial import KDTree
-from typing import Union
+from typing import Literal, Union
 
 import create_table
-from update_vars import INPUT_FOLDER, OUTPUT_FOLDER, PROJECT_CRS, WGS84
+from update_vars import (INPUT_FOLDER, OUTPUT_FOLDER, PARTRIDGE_FOLDER,
+                         analysis_date, PROJECT_CRS, WGS84,
+                         gtfs_tables_list, directory_list)
 
 MPH_PER_MPS = 2.237  # use to convert meters/second to miles/hour
+
 
 def add_operator_column(
     df: pd.DataFrame,
     operator_name: str
 ):
+    """
+    """
     df = df.assign(
        schedule_gtfs_dataset_key = operator_name
-    )
-    
-    return df
-
-def get_stop_times_with_stop_geometry(analysis_date: str) -> gpd.GeoDataFrame:
-    """
-    Import stop_times and stops and merge.
-    Returns a stop_times table that has stop_geometry attached.
-    """
-    stop_times = pd.read_parquet(
-        f"{INPUT_FOLDER}stop_times_{analysis_date}.parquet",
-        columns = [
-            "feed_key", "trip_id",
-            "stop_id", "stop_sequence",
-            "arrival_sec"
-        ]
-    )
-    stops = gpd.read_parquet(
-        f"{INPUT_FOLDER}stops_{analysis_date}.parquet",
-        columns = ["feed_key", "stop_id", "stop_name", "geometry"]
-    ).to_crs(PROJECT_CRS)
-    
-    df = pd.merge(
-        stops,
-        stop_times,
-        on = ["feed_key", "stop_id"],
-        how = "inner"
     )
     
     return df
@@ -109,6 +87,8 @@ def cardinal_definition_rules(
 
 def scheduled_and_vp_trips(analysis_date: str) -> list:
     """
+    Get list of trip_instance_keys that are in common from 
+    scheduled and vp.
     """
     scheduled_trips = pd.read_parquet(
         f"{OUTPUT_FOLDER}trips_{analysis_date}.parquet",
@@ -168,6 +148,9 @@ def plot_vp_shape_stops(
 
 
 def calculate_speed(meters_elapsed: float, sec_elapsed: float) -> float:
+    """
+    Convert meters and seconds elapsed into speed_mph.
+    """
     return meters_elapsed / sec_elapsed * MPH_PER_MPS
 
 def monotonic_check(arr: np.ndarray) -> bool:
@@ -182,32 +165,35 @@ def monotonic_check(arr: np.ndarray) -> bool:
     else:
         return False
 
-def monotonic_trips(
-    analysis_date: str,
-    **kwargs
-):
-    """
-    """
-    stops_projected = create_table.stop_times_projected_table(
-        analysis_date, 
-        **kwargs
-    )
     
+def monotonic_trips(
+    stop_times_gdf: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Based on stop_meters, the stop's point geometry
+    projected against shape's line geometry,
+    we can find which trips do not have monotonically
+    increasing stops.
+    
+    This is the main shortcoming with simply projecting
+    points on the line, because numbers jump around,
+    reflecting a pattern in how buses travel on roads,
+    which isn't wrong, but we need a method that handles this.
+    """
     trip_cols = ["schedule_gtfs_dataset_key", "trip_id", "shape_id"]
 
-    check_df = (stops_projected
-                       .sort_values(trip_cols + ["stop_sequence"])
-                       .groupby(trip_cols)
-                       .agg({"stop_meters": lambda x: list(x)})
-                       .reset_index()
-                      )
+    gdf = (stop_times_gdf
+               .sort_values(trip_cols + ["stop_sequence"])
+               .groupby(trip_cols)
+               .agg({"stop_meters": lambda x: list(x)})
+               .reset_index()
+              )
 
-    check_df = check_df.assign(
-        is_monotonic = check_df.apply(lambda x: monotonic_check(x.stop_meters), axis=1)
-    )[
-        trip_cols + ["is_monotonic"]
+    gdf = gdf.assign(
+        is_monotonic = gdf.apply(lambda x: monotonic_check(x.stop_meters), axis=1)
+    )[trip_cols + ["is_monotonic"]
     ].drop_duplicates().reset_index(drop=True)
 
-    return check_df
+    return gdf
 
 
