@@ -20,19 +20,28 @@ def speed_stats(gdf):
     display(speeds_calculated.speed_mph.hist(bins=range(0, 80, 5)))
     return
 
-def speed_map(speed_gdf: gpd.GeoDataFrame):
+def speed_map(
+    speed_gdf: gpd.GeoDataFrame,
+    static: bool = False
+):
     COLORSCALE = branca.colormap.step.RdBu_10.scale(vmin=0, vmax=80)
     drop_cols = speed_gdf.select_dtypes("datetime").columns
     
-    m = speed_gdf[(
+    gdf = speed_gdf[(
         speed_gdf.speed_mph.notna()) & 
         (speed_gdf.speed_mph < np.inf)
     ].drop(
         columns = drop_cols
     ).set_geometry(
         "segment_geometry"
-    ).explore(
-        "speed_mph", cmap=COLORSCALE,
-        tiles = "CartoDB Positron"
     )
+    
+    if static:
+        m = gdf.plot("speed_mph", cmap="RdBu", scheme="quantiles", k=10, vmin=0, vmax=80)
+
+    else:
+        m = gdf.explore(
+            "speed_mph", cmap=COLORSCALE,
+            tiles = "CartoDB Positron"
+        )
     return m 
