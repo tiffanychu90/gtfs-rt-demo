@@ -7,40 +7,32 @@ import numpy as np
 import pandas as pd
 import shapely
 
-from scipy.spatial import KDTree
 from typing import Literal, Union
 
 import create_table
-from update_vars import (INPUT_FOLDER, OUTPUT_FOLDER, PARTRIDGE_FOLDER,
-                         analysis_date, PROJECT_CRS, WGS84,
-                         gtfs_tables_list, directory_list)
+from update_vars import (OUTPUT_FOLDER, PROJECT_CRS, WGS84,
+                         gtfs_tables_list)
 
 MPH_PER_MPS = 2.237  # use to convert meters/second to miles/hour
 
-
-def add_operator_column(
-    df: pd.DataFrame,
-    operator_name: str
-):
-    """
-    """
-    df = df.assign(
-       schedule_gtfs_dataset_key = operator_name
-    )
-    
-    return df
-
+OPERATOR_NAMES_DICT = {
+    "1fd2f07342d966919b15d5d37fda8cc8": "Bruin Bus",
+    "efbbd5293be71f7a5de0cf82b59febe1": "Big Blue Bus",
+    "364d59b3aea55aec2962a0b3244a40e0": "Santa Clarita",
+    "cf0f7df88da36cd9ca4248eb1d6a0f39": "Culver City Bus",
+    "cc53a0dbf5df90e3009b9cb5d89d80ba": "LADOT"
+}
 
 def condense_by_trip(
     df: gpd.GeoDataFrame,
-    group_cols: list = ["feed_key", "trip_id"],
-    sort_cols: list = ["feed_key", "trip_id", "stop_sequence"],
+    group_cols: list = ["schedule_gtfs_dataset_key", "trip_instance_key"],
+    sort_cols: list = ["schedule_gtfs_dataset_key", "trip_instance_key", "stop_sequence"],
     geometry_col: str = "geometry",
     array_cols: list = ["stop_sequence"]
 ) -> gpd.GeoDataFrame:
     """
-    Condense stop_times (with stop geometry) to trip grain.
-    Save stop_sequence, geometry as lists.
+    Condense stop_times or vp to trip grain.
+    Get points strung together as linestring path.
     """
     orig_crs = df.crs.to_epsg()
     
@@ -85,21 +77,20 @@ def cardinal_definition_rules(
             return "Unknown"
         
 
-def scheduled_and_vp_trips(analysis_date: str) -> list:
+def scheduled_and_vp_trips() -> list:
     """
     Get list of trip_instance_keys that are in common from 
     scheduled and vp.
     """
     scheduled_trips = pd.read_parquet(
-        f"{OUTPUT_FOLDER}trips_{analysis_date}.parquet",
+        f"{OUTPUT_FOLDER}trips.parquet",
         columns = ["trip_instance_key"] 
     ).trip_instance_key.unique()
 
     rt_trips = pd.read_parquet(
-        f"{OUTPUT_FOLDER}vp_{analysis_date}.parquet",
+        f"{OUTPUT_FOLDER}vp.parquet",
         columns = ["trip_instance_key"]
     ).trip_instance_key.unique()
-    
     
     return list(set(scheduled_trips).intersection(rt_trips))
 
@@ -152,6 +143,7 @@ def calculate_speed(meters_elapsed: float, sec_elapsed: float) -> float:
     Convert meters and seconds elapsed into speed_mph.
     """
     return meters_elapsed / sec_elapsed * MPH_PER_MPS
+
 
 def monotonic_check(arr: np.ndarray) -> bool:
     """
