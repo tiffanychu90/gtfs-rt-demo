@@ -23,6 +23,12 @@ OPERATOR_NAMES_DICT = {
     "cc53a0dbf5df90e3009b9cb5d89d80ba": "LADOT"
 }
 
+def add_operator_name(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.assign(
+        operator_name = df.schedule_gtfs_dataset_key.map(OPERATOR_NAMES_DICT)
+    )
+    return df
+
 def condense_by_trip(
     df: gpd.GeoDataFrame,
     group_cols: list = ["schedule_gtfs_dataset_key", "trip_instance_key"],
@@ -35,6 +41,21 @@ def condense_by_trip(
     Get points strung together as linestring path.
     """
     orig_crs = df.crs.to_epsg()
+    
+    atleast2_rows = (df.groupby(group_cols)
+                     .agg({geometry_col: "count"})
+                     .reset_index()
+                     .query(f"{geometry_col} > 1")
+                     [group_cols]
+                     .drop_duplicates()
+                    )
+    
+    df = pd.merge(
+        df,
+        atleast2_rows,
+        on = group_cols,
+        how = "inner"    
+    )
     
     df2 = (
         df
