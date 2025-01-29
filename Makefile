@@ -3,8 +3,8 @@ install_env:
         
 process_data:
 	python scripts/stop_times_direction.py
-	python scripts/subset_tables.py
 
+# No longer using git lfs
 # This didn't work, but moving to git lfs did
 # git lfs install # add .gitattributes file after this
 # git lfs track “full_data/*.parquet”
