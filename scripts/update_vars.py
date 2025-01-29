@@ -9,4 +9,3 @@ WGS84 = "EPSG:4326"
 
 operators_list = ["LADOT", "Big Blue Bus"]
 gtfs_tables_list = ["trips", "shapes", "stops", "stop_times", "stop_times_direction", "vp"] 
-directory_list = [INPUT_FOLDER, OUTPUT_FOLDER, PARTRIDGE_FOLDER]

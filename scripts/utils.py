@@ -11,9 +11,9 @@ from scipy.spatial import KDTree
 from typing import Literal, Union
 
 import create_table
-from update_vars import (INPUT_FOLDER, OUTPUT_FOLDER, PARTRIDGE_FOLDER,
+from update_vars import (OUTPUT_FOLDER,
                          analysis_date, PROJECT_CRS, WGS84,
-                         gtfs_tables_list, directory_list)
+                         gtfs_tables_list)
 
 MPH_PER_MPS = 2.237  # use to convert meters/second to miles/hour
 
