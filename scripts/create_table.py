@@ -39,7 +39,7 @@ def get_calitp_table(
     """
     Import any of the 6 available GTFS tables.
     stop_times_direction is a combination of stop_times + trips (route info) + stop (geometry)
-    """        
+    """
     if table_name in ["trips", "stop_times"]:                
 
         df = pd.read_parquet(
@@ -47,7 +47,7 @@ def get_calitp_table(
             **kwargs
         )
         
-    if table_name in ["stops", "shapes", "stop_times_direction", "vp", "segments"]:
+    elif table_name in ["stops", "shapes", "stop_times_direction", "vp", "segments"] :
    
         df = gpd.read_parquet(
             get_hackathon_table_filepath(table_name, folder_path),

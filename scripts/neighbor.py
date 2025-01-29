@@ -7,6 +7,7 @@ from scipy.spatial import KDTree
 from typing import Union
 
 import utils
+from update_vars import OUTPUT_FOLDER
 
 OPPOSITE_DIRECTIONS = {
     "Northbound": "Southbound",
@@ -16,7 +17,11 @@ OPPOSITE_DIRECTIONS = {
     "Unknown": ""
 }
 
-def nearest_snap(line: Union[shapely.LineString, np.ndarray], point: shapely.Point, k_neighbors: int = 1) -> np.ndarray:
+def nearest_snap(
+    line: Union[shapely.LineString, np.ndarray], 
+    point: shapely.Point, 
+    k_neighbors: int = 1
+) -> np.ndarray:
     """
     Based off of this function,
     but we want to return the index value, rather than the point.
@@ -162,7 +167,6 @@ def two_nearest_neighbor_near_stop(
     return before_vp, after_vp, before_meters, after_meters
 
 
-
 def grab_vp_timestamp(
     prior_vp: int, 
     subseq_vp: int, 
@@ -170,7 +174,8 @@ def grab_vp_timestamp(
     timestamp_arr: np.ndarray
 ) -> tuple:
     """
-    Need to handle -1
+    Find the timestamps of the 2 vp flanking a stop position.
+    If the prior or subseq vp_idx are -1, return NaT.
     """
     vp_idx_array = np.asarray(vp_idx_array)
     timestamp_arr = np.asarray(timestamp_arr)
@@ -182,10 +187,12 @@ def grab_vp_timestamp(
         start_timestamp = timestamp_arr[index_of_prior][0]
     else: 
         start_timestamp = np.nan
+    
     if index_of_subseq.size > 0:
         end_timestamp = timestamp_arr[index_of_subseq][0]
     else:
         end_timestamp = np.nan
+    
     return start_timestamp, end_timestamp
 
 
@@ -346,6 +353,8 @@ def calculate_speed_from_stop_arrivals(
     trip_stop_cols: list = ["trip_instance_key", "stop_sequence"]
 ) -> pd.DataFrame:
     """
+    Take arrival times between stops and 
+    derive speed for that segment (1 segment = between 2 stops)
     """
     df = convert_timestamp_to_seconds(
         df, ["arrival_time"]
@@ -375,3 +384,115 @@ def calculate_speed_from_stop_arrivals(
     
     return speed
     
+    
+def nearest_neighbor_and_interpolate(
+    gdf: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Combine nearest neighbor with interpolation to get 
+    interpolated arrival times for stop.
+    
+    This is part 1 of method2.
+    We break out these in stages in our pipeline, but let's optimize this as a whole.
+    """
+    vp_before, vp_after, vp_before_meters, vp_after_meters = np.vectorize(
+        two_nearest_neighbor_near_stop
+    )(
+        gdf.vp_primary_direction, 
+        gdf.vp_geometry, 
+        gdf.vp_idx,
+        gdf.stop_geometry,
+        gdf.stop_opposite_direction,
+        gdf.shape_geometry,
+        gdf.stop_meters
+    )
+    
+    gdf = gdf.assign(
+        prior_vp_idx = vp_before,
+        subseq_vp_idx = vp_after,
+        prior_vp_meters = vp_before_meters, 
+        subseq_vp_meters = vp_after_meters
+    )
+    
+    start_time_series = []
+    end_time_series = []
+
+    for row in gdf.itertuples():
+        start_time, end_time = grab_vp_timestamp(
+            getattr(row, "prior_vp_idx"),
+            getattr(row, "subseq_vp_idx"),
+            getattr(row, "vp_idx"),
+            getattr(row, "location_timestamp_local"),
+        )
+
+        start_time_series.append(start_time)
+        end_time_series.append(end_time)
+    
+    gdf = gdf.assign(
+        start_local_timestamp = start_time_series,
+        end_local_timestamp = end_time_series
+    )
+    
+    interpolated_arrival_series = []
+
+    for row in gdf.itertuples():
+        if (getattr(row, "prior_vp_idx") == -1) or (getattr(row, "subseq_vp_idx") == -1):
+            arrival_time = np.nan
+        else:
+            arrival_time = interpolate_stop_arrival_time(
+                getattr(row, "stop_meters"),
+                [getattr(row, "prior_vp_meters"), getattr(row, "subseq_vp_meters")],
+                [getattr(row, "start_local_timestamp"), getattr(row, "end_local_timestamp")]
+            )
+
+        interpolated_arrival_series.append(arrival_time)
+        
+    gdf["arrival_time"] = interpolated_arrival_series
+    
+    return gdf
+    
+    
+def enforce_monotonicity_calculate_speeds(
+    gdf: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Whenever arrival times do not meet the monotonicity condition,
+    reset it and use surrounding arrival times to interpolate its arrival time.
+    Convert to speeds for segment.
+    
+    This is part 2 of method2.
+    At the end of this, we'll have merged on segment geometries, and will be able to map results.
+    """
+    drop_cols = [
+        "stop_opposite_direction",
+        "vp_geometry", "vp_idx",
+        'location_timestamp_local', 'vp_primary_direction', 
+        'shape_geometry',
+        'prior_vp_idx', 'subseq_vp_idx', 
+        'prior_vp_meters', 'subseq_vp_meters', 
+        'start_local_timestamp', 'end_local_timestamp'
+    ]
+    
+    trip_stop_cols = ["trip_instance_key", "stop_sequence"]
+
+    gdf2 = enforce_monotonicity_and_interpolate_across_stops(
+        gdf, trip_stop_cols).drop(columns = drop_cols)
+    
+    speeds = calculate_speed_from_stop_arrivals(
+        gdf2,
+        trip_cols = ["trip_instance_key"],
+        trip_stop_cols = ["trip_instance_key", "stop_sequence"]
+    )
+    
+    segments = gpd.read_parquet(
+        f"{OUTPUT_FOLDER}segments.parquet",
+        columns = ["trip_instance_key", "stop_id1", "stop_id2", "geometry"]
+    )
+    
+    speed_gdf = pd.merge(
+        segments.rename(columns = {"geometry": "segment_geometry"}),
+        speeds,
+        on = ["trip_instance_key", "stop_id1", "stop_id2"]
+    )
+    
+    return speed_gdf
